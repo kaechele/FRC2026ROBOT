@@ -4,12 +4,10 @@
 
 package frc.robot;
 
-
+// Library imports
 import com.pathplanner.lib.auto.NamedCommands;
-
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.controller.PIDController;
-
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -20,14 +18,12 @@ import edu.wpi.first.wpilibj.util.Color;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.StartEndCommand;
-import edu.wpi.first.wpilibj2.command.button.CommandPS4Controller;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.Commands.DrivebaseCommands.DriveToPose;
-import frc.robot.Commands.FuelHandingCommands.IntakeFuel;
 import frc.robot.Subsystems.ElasticSubsystem;
-import frc.robot.Subsystems.IntakeSubsystem;
 import frc.robot.Subsystems.LightsSubsystem;
 import frc.robot.Subsystems.SwerveSubsystem;
+import frc.robot.Subsystems.TurretSubsystem;
 import frc.robot.Utilites.Constants;
 import frc.robot.Utilites.Constants.OperatorConstants;
 import frc.robot.Utilites.Constants.PWMPorts;
@@ -36,7 +32,6 @@ import frc.robot.Utilites.HelperFunctions;
 import frc.robot.Utilites.LEDRequest;
 import frc.robot.Utilites.LEDRequest.LEDState;
 import frc.robot.Utilites.LimelightHelpers;
-
 import java.io.File;
 import swervelib.SwerveInputStream;
 
@@ -49,23 +44,24 @@ import swervelib.SwerveInputStream;
  * Instead, the structure of the robot (including subsystems, commands, and
  * trigger mappings) should be declared here.
  */
+// Main class
 public class RobotContainer {
-
-    final CommandPS4Controller driverPS4 = new CommandPS4Controller(0);
-    final CommandXboxController driverXbox = new CommandXboxController(0);
+    // Object initalizations 
+    final CommandXboxController driverXbox = new CommandXboxController(0); // Controller, to USB port 0
     private final SwerveSubsystem drivebase = new SwerveSubsystem(new File(Filesystem.getDeployDirectory(),
-            "swerve/neo"));
-    LightsSubsystem lights = new LightsSubsystem(PWMPorts.LIGHT_PORT, Constants.LIGHTS_AMOUNT);
-    ElasticSubsystem elasticSubsystem = new ElasticSubsystem();
-    IntakeSubsystem intake = new IntakeSubsystem();
-    PowerDistribution PDH = new PowerDistribution(Constants.CANIds.PDH_ID, ModuleType.kRev);
-    FieldLayout field = new FieldLayout();
+            "swerve/neo")); // The swerve base, with the variable from the json files
+    LightsSubsystem lights = new LightsSubsystem(PWMPorts.LIGHT_PORT, Constants.LIGHTS_AMOUNT); // Lights with the pwm port and amount of lights
+    ElasticSubsystem elasticSubsystem = new ElasticSubsystem(); // The Driver dashboard
+    PowerDistribution PDH = new PowerDistribution(Constants.CANIds.PDH_ID, ModuleType.kRev); // The Rev PowerDistribution board, with its CAN ID
+    FieldLayout field = new FieldLayout(); // The layout of all the april tags
+    TurretSubsystem turret = new TurretSubsystem(); // The turret 
 
-    // Fine align tuning
+
+    // The 3 PID Controllers needed for the accurate aligning to an april tag
     private PIDController forwardPID = new PIDController(3, 0, 0.001);
     private PIDController strafePID = new PIDController(3, 0, 0.001);
     private PIDController thetaPID = new PIDController(0.05, 0, 0.001);
-
+    // The target pose the robot will drive to, with a random position
     Pose2d targetPose = new Pose2d(2, 5, new Rotation2d(0));
 
     boolean doRejectUpdate;
@@ -76,9 +72,9 @@ public class RobotContainer {
      * by angular velocity.
      */
     SwerveInputStream driveAngularVelocity = SwerveInputStream.of(drivebase.getSwerveDrive(),
-            () -> driverPS4.getLeftY() * -1,
-            () -> driverPS4.getLeftX() * -1)
-            .withControllerRotationAxis(driverPS4::getRightX)
+            () -> driverXbox.getLeftY() * 1,
+            () -> driverXbox.getLeftX() * 1)
+            .withControllerRotationAxis(driverXbox::getRightX)
             .deadband(OperatorConstants.DEADBAND)
             .scaleTranslation(0.8)
             .allianceRelativeControl(true);
@@ -87,8 +83,8 @@ public class RobotContainer {
      * Clone's the angular velocity input stream and converts it to a fieldRelative
      * input stream.
      */
-    SwerveInputStream driveDirectAngle = driveAngularVelocity.copy().withControllerHeadingAxis(driverPS4::getRightX,
-            driverPS4::getRightY)
+    SwerveInputStream driveDirectAngle = driveAngularVelocity.copy().withControllerHeadingAxis(() -> driverXbox.getRightX() * -1, () ->
+            driverXbox.getRightY()*-1)
             .headingWhile(true);
 
     /**
@@ -98,63 +94,57 @@ public class RobotContainer {
     SwerveInputStream driveRobotOriented = driveAngularVelocity.copy().robotRelative(true)
             .allianceRelativeControl(false);
 
-  
-
     // #endregion
 
+    // Constructor of the main class
     public RobotContainer() {
+        // Changes the target pose to in front of blue hub
         targetPose = field.getPoseInFrontOfTag(26, 1.5);
+        // Setup the drive dashboard
         elasticSubsystem.putAutoChooser();
+        // Setup commands to be used in auton
         registerNamedCommands();
-
+        // Configure the controller button bindings
         configureBindings();
+        // Stop sounding the alarm when the controller isnt connected
         DriverStation.silenceJoystickConnectionWarning(true);
 
     }
 
     private void configureBindings() {
+        // Main drive Command
         Command driveFieldOrientedDirectAngle = drivebase.driveFieldOriented(driveDirectAngle);
         @SuppressWarnings("unused")
+        // "Better" drive command that still needs to be tested, requires roborio 2.0
         Command driveSetpointGen = drivebase.driveWithSetpointGeneratorFieldRelative(
                 driveDirectAngle);
 
-        
-        drivebase.setDefaultCommand(driveFieldOrientedDirectAngle); // The actual drive command
+         // This line activates the drivebase
+        drivebase.setDefaultCommand(driveFieldOrientedDirectAngle);
         
         // #region Ctrl Bindings
-        
-        // driverXbox.rightTrigger(0.2).whileTrue(new StartEndCommand(() -> {
-        //     drivebase.setCreepDrive(true);
-        // }, () -> {
-        //     drivebase.setCreepDrive(false);
-        // }));
-
-         driverPS4.axisGreaterThan(4, 0.2).whileTrue(new StartEndCommand(() -> {
+        // Creep drive
+        driverXbox.rightTrigger(0.2).whileTrue(new StartEndCommand(() -> {
             drivebase.setCreepDrive(true);
         }, () -> {
             drivebase.setCreepDrive(false);
         }));
-
-        driverPS4.circle().onTrue(new DriveToPose(drivebase, () -> targetPose, forwardPID, strafePID, thetaPID,
+        // Drive to target pose when "B" is pressed
+        driverXbox.b().onTrue(new DriveToPose(drivebase, () -> targetPose, forwardPID, strafePID, thetaPID,
                 this::driverOverride, lights));
-
-        driverPS4.button(0).onTrue((Commands.runOnce(drivebase::zeroGyro)));
-
-        driverPS4.triangle().onTrue(Commands.runOnce(() -> drivebase.resetOdometry(drivebase.getPose())));
-        driverPS4.square().whileTrue(new IntakeFuel(intake));
-
+        // Reset the IMU, re-zero the swerve
+        driverXbox.a().onTrue((Commands.runOnce(drivebase::zeroGyro)));
         // #endregion
 
     }
 
     public void enabledPeriodic() {
-
     }
 
     public void robotPeriodic() {
-        setLights();
-        lights.run();
-        sendDashboardData();
+        setLights(); // Set the light pattern
+        lights.run(); // Turn the lights on
+        sendDashboardData(); // Send dashboard data
     }
 
     // #region Dashboard
@@ -176,23 +166,25 @@ public class RobotContainer {
     // #region Telemetry
 
     public void updateTelemetry() {
+        // try-catch in case the limelight disconnects for a millisecond
         try {
             doRejectUpdate = false;
+            // Send the ll4 IMU data from the pigeon
             LimelightHelpers.SetRobotOrientation(
                     "limelight-back",
                     drivebase.getHeading().getDegrees(),
                     Math.toDegrees(drivebase.getRobotVelocity().omegaRadiansPerSecond),
                     drivebase.getPitch().getDegrees(), 0, 0, 0);
-
+            // Send the other ll4 IMU data from the pigeon
             LimelightHelpers.SetRobotOrientation(
                     "limelight-front",
                     drivebase.getHeading().getDegrees(),
                     Math.toDegrees(drivebase.getRobotVelocity().omegaRadiansPerSecond),
                     drivebase.getPitch().getDegrees(), 0, 0, 0);
-
+            // Get the estimated position from the back camera
             LimelightHelpers.PoseEstimate robotPositionBack = LimelightHelpers
                     .getBotPoseEstimate_wpiBlue_MegaTag2("limelight-back");
-
+            // Get the esitamted position form the front camera
             LimelightHelpers.PoseEstimate robotPositionFront = LimelightHelpers
                     .getBotPoseEstimate_wpiBlue_MegaTag2("limelight-front");
 
@@ -200,17 +192,20 @@ public class RobotContainer {
             if (Math.abs(drivebase.getRobotVelocity().omegaRadiansPerSecond) > Math.toRadians(120)) {
                 doRejectUpdate = true;
             }
-
+            // reject vision while a tag is not seen
             if (robotPositionBack.tagCount < 1 && robotPositionFront.tagCount < 1) {
                 doRejectUpdate = true;
             }
 
             if (!doRejectUpdate) {
-                drivebase.setVisionStdDevs(VecBuilder.fill(1.5, 1.5, 10)); // "trust", in cameras
+                // set the "trust", in cameras
+                drivebase.setVisionStdDevs(VecBuilder.fill(1.5, 1.5, 10)); 
                 if (robotPositionBack.tagCount > 0) {
+                    // Send the pose to the drivebase
                     drivebase.updateBotPose(robotPositionBack.pose);
                 }
                 if (robotPositionFront.tagCount > 0) {
+                    // Send the pose to the drivebase
                     drivebase.updateBotPose(robotPositionFront.pose);
                 }
 
@@ -224,6 +219,7 @@ public class RobotContainer {
     // #endregion
     // #region Generic
 
+    // Set the lights to different patterns
     public void setLights() {
         if (drivebase.getCreepDrive())
             lights.requestLEDState(new LEDRequest(LEDState.SOLID).withColour(HelperFunctions.convertToGRB(Color.kRed))
@@ -232,25 +228,27 @@ public class RobotContainer {
             lights.requestLEDState(new LEDRequest(LEDState.SOLID).withColour(HelperFunctions.convertToGRB(Color.kGreen))
                     .withPriority(5));
 
-        if (!ElasticSubsystem.getBoolean("Lights Switch")) {
+        if (!ElasticSubsystem.getBoolean("Lights Switch")) 
             lights.requestLEDState(new LEDRequest(LEDState.OFF).withPriority(-999));
-        }
+        
 
         if (DriverStation.isDisabled())
             lights.requestLEDState(new LEDRequest(LEDState.RAINBOW).withPriority(-1));
     }
-
+    // Run the auto that was selected in the driver dashboard
     public Command getAutonomousCommand() {
         return drivebase.getAutonomousCommand(elasticSubsystem.getSelectedAuto());
     }
 
+    // Turn on the wheel brakes
     public void setMotorBrake(boolean brake) {
         drivebase.setMotorBrake(brake);
     }
 
+    // Overrides the path following in the driver tries to break free
     private boolean driverOverride() {
-        double x = driverPS4.getRightX();
-        double y = driverPS4.getRightY();
+        double x = driverXbox.getRightX();
+        double y = driverXbox.getRightY();
         double threshold = 0.5;
 
         return Math.abs(x) > threshold || Math.abs(y) > threshold;

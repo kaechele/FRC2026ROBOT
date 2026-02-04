@@ -68,7 +68,7 @@ public class TurretSubsystem extends SubsystemBase {
         
         yawMotor.getConfigurator().apply(loopConfigs);
         yawMotor.getConfigurator().apply(yawConfigs);
-        yawMotor.getConfigurator().apply(softLimits);
+       // yawMotor.getConfigurator().apply(softLimits);
 
         flywheelConfigs.MotorOutput.withInverted(TurretConstants.Flywheel.INVERSION).withNeutralMode(neutralModeValue);
         flywheelConfigs.Slot0.kP = TurretConstants.Flywheel.P;
@@ -121,6 +121,10 @@ public class TurretSubsystem extends SubsystemBase {
             yawMotor.set(0);
         }
 
+    }
+
+    public void runYawWithSpeed(double speed){
+        yawMotor.set(speed);
     }
 
 }
