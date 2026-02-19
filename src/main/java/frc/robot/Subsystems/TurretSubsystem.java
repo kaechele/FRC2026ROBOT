@@ -6,125 +6,112 @@ import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.NeutralModeValue;
-import edu.wpi.first.wpilibj.DigitalInput;
+import com.revrobotics.PersistMode;
+import com.revrobotics.ResetMode;
+import com.revrobotics.spark.FeedbackSensor;
+import com.revrobotics.spark.SparkClosedLoopController;
+import com.revrobotics.spark.SparkFlex;
+import com.revrobotics.spark.SparkMax;
+import com.revrobotics.spark.SparkBase.ControlType;
+import com.revrobotics.spark.SparkLowLevel.MotorType;
+import com.revrobotics.spark.config.SparkFlexConfig;
+import com.revrobotics.spark.config.SparkMaxConfig;
+import com.revrobotics.spark.config.SparkBaseConfig.IdleMode;
+
+import edu.wpi.first.networktables.GenericEntry;
+import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
+import edu.wpi.first.wpilibj.shuffleboard.ShuffleboardTab;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.Utilites.Constants.CANIds;
-import frc.robot.Utilites.Constants.DIOPorts;
+import frc.robot.Utilites.Constants;
+
 import frc.robot.Utilites.Constants.TurretConstants;
 
 public class TurretSubsystem extends SubsystemBase {
 
-    TalonFX yawMotor;
-    TalonFX flywheelMotor;
-    NeutralModeValue neutralModeValue;
-    DigitalInput CWLimitSwitch;
-    DigitalInput CCWLimitSwitch;
+    SparkFlex flyWheelMotor; // Vortex
+    SparkMax pitchMotor; // Neo 550
+    SparkMax yawMotor; // Neo 550
 
-    boolean isZeroed = false;
+    SparkFlexConfig flywheelConfig;
+    SparkMaxConfig pitchConfig;
+    SparkMaxConfig yawConfig;
+    
+    SparkClosedLoopController flywheelController;
+    SparkClosedLoopController pitchController;
+    SparkClosedLoopController yawController;
 
     double turretAngleSetpoint = 0;
     double currentYaw = 0;
     double currentPitch = 0;
 
+    double flywheelSpeed = 0;
+
+    boolean isSpinning = false;
+
+    private ShuffleboardTab debugTab = Shuffleboard.getTab("Debug");
+    private GenericEntry flywheelRpm = debugTab.addPersistent("Flywheel RPM", 4000).getEntry();
+    private GenericEntry flywheelP = debugTab.addPersistent("Flywheel P",0).getEntry();
+    private GenericEntry flywheelI = debugTab.addPersistent("Flywheel I",0).getEntry();
+    private GenericEntry flywheelD = debugTab.addPersistent("Flywheel D",0).getEntry();
+    private GenericEntry flywheelKV = debugTab.addPersistent("Flywheel kv",0).getEntry();
+
     public TurretSubsystem() { // Yaw CCW+
-        CWLimitSwitch = new DigitalInput(DIOPorts.TALONFX_CW_LIMIT_SWITCH);
-        CCWLimitSwitch = new DigitalInput(DIOPorts.TALONFX_CCW_LIMIT_SWITCH);
-        neutralModeValue = NeutralModeValue.Coast;
+       flyWheelMotor = new SparkFlex(Constants.CANIds.TURRET_FLYWHEEL_ID, MotorType.kBrushless);
+    //    pitchMotor = new SparkMax(Constants.CANIds.TURRET_HOOD_ID, MotorType.kBrushless);
+    //    yawMotor = new SparkMax(Constants.CANIds.TURRET_YAW_ID, MotorType.kBrushless);
 
-        yawMotor = new TalonFX(CANIds.TURRET_YAW_ID);
-        flywheelMotor = new TalonFX(CANIds.TURRET_FLYWHEEL_ID);
-        TalonFXConfiguration yawConfigs = new TalonFXConfiguration();
-        TalonFXConfiguration flywheelConfigs = new TalonFXConfiguration();
+       flywheelController = flyWheelMotor.getClosedLoopController();
+    //    pitchController = pitchMotor.getClosedLoopController();
+    //    yawController = yawMotor.getClosedLoopController();
 
-        yawConfigs.MotorOutput.withInverted(TurretConstants.Yaw.INVERSION)
-                .withNeutralMode(neutralModeValue);
-        yawConfigs.Slot0.kP = TurretConstants.Yaw.P;
-        yawConfigs.Slot0.kI = TurretConstants.Yaw.I;
-        yawConfigs.Slot0.kD = TurretConstants.Yaw.D;
-        yawConfigs.CurrentLimits.withSupplyCurrentLimit(TurretConstants.Yaw.CURRENT_LIMIT);
-        yawConfigs.CurrentLimits.withStatorCurrentLimit(TurretConstants.Yaw.CURRENT_LIMIT);
+       flywheelConfig = new SparkFlexConfig();
+    //    pitchConfig = new SparkMaxConfig();
+    //    yawConfig = new SparkMaxConfig();
 
-        yawConfigs.Feedback.SensorToMechanismRatio = TurretConstants.Yaw.GEAR_RATIO;
+       flywheelConfig.inverted(true).idleMode(IdleMode.kCoast);
+       flywheelConfig.closedLoop.feedbackSensor(FeedbackSensor.kPrimaryEncoder);
+       flywheelConfig.closedLoop.pid(0.00003, 0, 0).feedForward.kV(0.00016); // 0.00016
+       flyWheelMotor.configure(flywheelConfig, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
 
-        SoftwareLimitSwitchConfigs softLimits = new SoftwareLimitSwitchConfigs();
+    //    pitchConfig.inverted(false).idleMode(IdleMode.kBrake);
+    //    pitchConfig.closedLoop.feedbackSensor(FeedbackSensor.kPrimaryEncoder);
+    //    pitchConfig.closedLoop.pid(TurretConstants.Hood.P, TurretConstants.Hood.I, TurretConstants.Hood.D);
+    //    pitchMotor.configure(pitchConfig, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
 
-        // 0 degrees forward, 175 degrees of allowed movement in each direction
-        // Turret rotations = desiredAngleInDegrees / 360
-        double forwardLimitRotations = (175.0 / 360.0);
-        double reverseLimitRotations = (-175.0 / 360.0);
-
-        // Forward (Counter-Clockwise) Limit
-        softLimits.ForwardSoftLimitEnable = true;
-        softLimits.ForwardSoftLimitThreshold = forwardLimitRotations;
-
-        // Reverse (Clockwise) Limit
-        softLimits.ReverseSoftLimitEnable = true;
-        softLimits.ReverseSoftLimitThreshold = reverseLimitRotations;
-
-        yawConfigs.MotorOutput.DutyCycleNeutralDeadband = 0.01;
-
-        ClosedLoopGeneralConfigs loopConfigs = new ClosedLoopGeneralConfigs();
-        loopConfigs.ContinuousWrap = false;
-        
-        yawMotor.getConfigurator().apply(loopConfigs);
-        yawMotor.getConfigurator().apply(yawConfigs);
-       // yawMotor.getConfigurator().apply(softLimits);
-
-        flywheelConfigs.MotorOutput.withInverted(TurretConstants.Flywheel.INVERSION).withNeutralMode(neutralModeValue);
-        flywheelConfigs.Slot0.kP = TurretConstants.Flywheel.P;
-        flywheelConfigs.Slot0.kP = TurretConstants.Flywheel.I;
-        flywheelConfigs.Slot0.kP = TurretConstants.Flywheel.D;
-        flywheelConfigs.CurrentLimits.withSupplyCurrentLimit(TurretConstants.Flywheel.CURRENT_LIMIT);
-        flywheelConfigs.CurrentLimits.withStatorCurrentLimit(TurretConstants.Flywheel.CURRENT_LIMIT);
-
-        flywheelMotor.getConfigurator().apply(flywheelConfigs);
+    //    yawConfig.inverted(false).idleMode(IdleMode.kCoast);
+    //    yawConfig.closedLoop.feedbackSensor(FeedbackSensor.kAbsoluteEncoder);
+    //    yawConfig.absoluteEncoder.positionConversionFactor(360).velocityConversionFactor(1);
+    //    yawConfig.absoluteEncoder.inverted(false);
+    //    yawConfig.closedLoop.pid(TurretConstants.Yaw.P, TurretConstants.Yaw.I, TurretConstants.Yaw.D);
+    //    yawMotor.configure(yawConfig, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
     }
 
-    public boolean withinHardLimits() {
-        return !(CWLimitSwitch.get() || CCWLimitSwitch.get());
-    }
 
-    public double getCurrentPosition() {
-        currentYaw = yawMotor.getPosition().getValueAsDouble();
-        return currentYaw;
-    }
 
-    public void reZero() {
-        isZeroed = false;
-    }
-
-    public void zeroEncoderPeriodic() {
-        if (isZeroed)
-            return;
-
-        if (CCWLimitSwitch.get()) {
-            yawMotor.set(-0.06);
-        } else {
-            yawMotor.set(0);
-            yawMotor.setPosition(0);
-            turretAngleSetpoint = TurretConstants.MID_YAW;
-            isZeroed = true;
-        }
-    }
 
     public void setAngle(double degrees){
         turretAngleSetpoint = degrees / 360;
     }
 
+    public void setFlywheelSpeed(double rpm){
+        flywheelSpeed = rpm;
+    }
+
     public void run() {
-        if (!isZeroed) {
-            return;
-        }
-        if (withinHardLimits()) { //TODO Test motion magic
-            yawMotor.setControl(new PositionVoltage(turretAngleSetpoint));
-        } else {
-            yawMotor.set(0);
-        }
+        System.out.println(flyWheelMotor.getEncoder().getVelocity());
+        flywheelController.setSetpoint(flywheelSpeed, ControlType.kVelocity);    
 
     }
 
-    public void runYawWithSpeed(double speed){
-        yawMotor.set(speed);
+    public void toggleFlywheel(){
+        isSpinning = !isSpinning;
+        if(isSpinning) flywheelSpeed = flywheelRpm.getDouble(4000);
+        else flywheelSpeed = 0;
     }
+
+    public double getRPM(){
+        return flyWheelMotor.getEncoder().getVelocity();
+    }
+
 
 }

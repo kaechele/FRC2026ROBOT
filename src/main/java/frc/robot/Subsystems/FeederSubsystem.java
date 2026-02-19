@@ -2,8 +2,10 @@ package frc.robot.Subsystems;
 
 
 import com.revrobotics.spark.SparkLowLevel.MotorType;
+import com.revrobotics.spark.SparkFlex;
 import com.revrobotics.spark.SparkMax;
 import com.revrobotics.spark.config.SparkBaseConfig.IdleMode;
+import com.revrobotics.spark.config.SparkFlexConfig;
 
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Utilites.Constants.CANIds;
@@ -12,13 +14,13 @@ import com.revrobotics.spark.config.SparkMaxConfig;
 
 public class FeederSubsystem extends SubsystemBase {
 
-    SparkMax motor;
-     SparkMaxConfig config;
+    SparkFlex motor;
+    SparkFlexConfig config;
      boolean isOn = false;
 
     public FeederSubsystem() {
-        motor = new SparkMax(CANIds.HOPPER_ID, MotorType.kBrushless);
-        config = new SparkMaxConfig();
+        motor = new SparkFlex(CANIds.FEEDER_ID, MotorType.kBrushless);
+        config = new SparkFlexConfig();
         config.inverted(IntakeConstants.Pivot.INVERSION).idleMode(IdleMode.kCoast);
         motor.configure(config, com.revrobotics.ResetMode.kResetSafeParameters,
                 com.revrobotics.PersistMode.kPersistParameters);
@@ -38,7 +40,7 @@ public class FeederSubsystem extends SubsystemBase {
 
     public void run() {
         if(isOn)
-        motor.set(1);
+        motor.set(0.3);
     }
 
 }

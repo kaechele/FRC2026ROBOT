@@ -24,32 +24,45 @@ public class IntakeSubsystem extends SubsystemBase {
 
     SparkMax pivotMotor;
     SparkMax intakeMotor;
-    SparkClosedLoopController PIDController;
-    SparkMaxConfig config;
+    SparkClosedLoopController pivotController;
+    SparkClosedLoopController intakeController;
+    SparkMaxConfig pivotConfig;
+    SparkMaxConfig intakeConfig;
     IdleMode idleMode;
     double setpoint;
     boolean isAgitating = false;
     boolean isUp = false;
+    boolean isSpinning = false;
+    double intakeVel = 0;
 
     public IntakeSubsystem() {
+        intakeMotor = new SparkMax(CANIds.INTAKE_ID, MotorType.kBrushless);
+        intakeController = intakeMotor.getClosedLoopController();
+        intakeConfig = new SparkMaxConfig();
+
+        intakeConfig.closedLoop.pid(0.0001, 0, 0).feedForward.kV(0.0026);
+        intakeConfig.closedLoop.feedbackSensor(FeedbackSensor.kPrimaryEncoder);
+        intakeMotor.configure(intakeConfig, com.revrobotics.ResetMode.kResetSafeParameters,
+                com.revrobotics.PersistMode.kPersistParameters);
+
         pivotMotor = new SparkMax(CANIds.INTAKE_PIVOT_ID, MotorType.kBrushless);
-        config = new SparkMaxConfig();
-        PIDController = pivotMotor.getClosedLoopController();
+        pivotConfig = new SparkMaxConfig();
+        pivotController = pivotMotor.getClosedLoopController();
         idleMode = IdleMode.kBrake;
 
-        config.inverted(IntakeConstants.Pivot.INVERSION).idleMode(idleMode);
-        config.closedLoop.feedbackSensor(FeedbackSensor.kAbsoluteEncoder);
-        config.absoluteEncoder.positionConversionFactor(360).velocityConversionFactor(1);
-        config.closedLoop.pid(IntakeConstants.Pivot.P, IntakeConstants.Pivot.I, IntakeConstants.Pivot.D);
+        pivotConfig.inverted(IntakeConstants.Pivot.INVERSION).idleMode(idleMode);
+        pivotConfig.closedLoop.feedbackSensor(FeedbackSensor.kAbsoluteEncoder);
+        pivotConfig.absoluteEncoder.positionConversionFactor(360).velocityConversionFactor(1);
+        pivotConfig.closedLoop.pid(IntakeConstants.Pivot.P, IntakeConstants.Pivot.I, IntakeConstants.Pivot.D);
 
-        pivotMotor.configure(config, com.revrobotics.ResetMode.kResetSafeParameters,
+        pivotMotor.configure(pivotConfig, com.revrobotics.ResetMode.kResetSafeParameters,
                 com.revrobotics.PersistMode.kPersistParameters);
     }
 
     public void setIdleMode(IdleMode idleMode) {
         this.idleMode = idleMode;
-        config.idleMode(idleMode);
-        pivotMotor.configure(config, com.revrobotics.ResetMode.kNoResetSafeParameters,
+        pivotConfig.idleMode(idleMode);
+        pivotMotor.configure(pivotConfig, com.revrobotics.ResetMode.kNoResetSafeParameters,
                 com.revrobotics.PersistMode.kNoPersistParameters);
 
     }
@@ -78,11 +91,31 @@ public class IntakeSubsystem extends SubsystemBase {
         }
     }
 
+    public void togglePosition() {
+        isUp = !isUp;
+        if (isUp)
+            setState(IntakeState.INTAKING_FUEL);
+        if (!isUp)
+            setState(IntakeState.NORMAL);
+    }
+
     public void run() {
         if (isAgitating) {
             // TODO make setpoint move between stored and normal
         }
-        PIDController.setSetpoint(setpoint, ControlType.kPosition); // TODO Better control and intregrated soft limits
+        
+        
+
+            intakeController.setSetpoint(intakeVel, ControlType.kVelocity);
+           // System.out.println(intakeMotor.getEncoder().getVelocity());
+        
+
+    }
+
+    public void spinUp() {
+        isSpinning = !isSpinning;
+        if(isSpinning) intakeVel = 2000;
+        else intakeVel = 0;
 
     }
 
