@@ -57,5 +57,24 @@
     "edu.wpi.first.math.**.proto.*",
     "edu.wpi.first.math.**.struct.*",
   ],
-  "java.dependency.enableDependencyCheckup": false
+  "java.dependency.enableDependencyCheckup": false,
+
+  // Disable VSCode built-in formatting
+  "java.format.enabled": false,
+
+  // Explicit formatting configuration
+  "editor.detectIndentation": false,
+  "editor.insertSpaces": true,
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+  "editor.autoIndent": "full",
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[java]": {
+      "spotlessGradle.format.enable": true,
+      "editor.defaultFormatter": "richardwillis.vscode-spotless-gradle"
+  },
+  "[gradle]": {
+      "spotlessGradle.format.enable": true,
+      "editor.defaultFormatter": "richardwillis.vscode-spotless-gradle"
+  },
 }
